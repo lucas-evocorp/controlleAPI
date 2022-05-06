@@ -1,4 +1,9 @@
-import { BadRequestException, HttpCode, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpCode,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as dayjs from 'dayjs';
 require('dayjs/locale/pt-br');
@@ -13,20 +18,43 @@ import { Category } from './entities/category.entity';
 import { Release } from './entities/releases.entity';
 import { v4 as uuidv4 } from 'uuid';
 import { UpdateTypeDto } from './dto/update-release-type.dto ';
-import { IDateFilterResponse } from './interfaces/date-filter.interface';
 import { SearchDto } from './dto/search.dto';
+import { AccountService } from 'src/accounts/accounts.service';
+import { typeEnum } from 'src/core/interfaces/type-enum';
+import {
+  timeCourseEnum,
+  timeCourseFilterDto,
+} from './dto/time-course-filter.dto';
+
+interface IListReleaseDetailsResponse {
+  releaseDetails: Release;
+  category: Category;
+  account: Account;
+}
+
+interface IDateFilterResponse {
+  initialDate: string;
+  finalDate: string;
+}
 
 enum amountEnum {
   FULL = 'full',
   MORE_THAN = 'more-than',
+  JUST_THIS = 'just-this',
+}
+
+interface IDeleteReleaseResponse {
+  key: number | string;
+  count?: number | string;
 }
 
 interface ApplyFiltersParams {
   release: SelectQueryBuilder<Release>;
   type: string;
   category: string;
-  account: string;
+  account: number;
   search: SearchDto;
+  usuarioAuth: IUserAuth;
 }
 
 interface IPrevisionParams {
@@ -40,9 +68,9 @@ export interface IReleaseSumResponse {
 }
 export interface IListReleasesParams {
   date: string;
-  filter: string;
+  filter: timeCourseFilterDto;
   type: string;
-  account: string;
+  account: number;
   category: string;
   usuarioAuth: IUserAuth;
   search: SearchDto;
@@ -75,21 +103,17 @@ interface IBalanceParams {
   date: IDateFilterResponse;
 }
 enum releaseCategoryEnum {
-  Outros = 'Outros',
+  OTHERS = 'Outros',
 }
 
-enum typeReleaseEnum {
-  recipe = 'receita',
-  expense = 'despesa',
-}
 enum typeReleasesToFilterEnum {
-  allReleases = 'todos-os-lancamentos',
-  payRecipes = 'receitas-recebidas',
-  payExpenses = 'despesas-pagas',
-  unpaidRecipes = 'receitas-nao-recebidas',
-  unpaidExpenses = 'despesas-nao-pagas',
-  recipes = 'receitas',
-  expenses = 'despesas',
+  ALL_RELEASES = 'todos-os-lancamentos',
+  PAY_RECIPES = 'receitas-recebidas',
+  PAY_EXPENSES = 'despesas-pagas',
+  UNPAID_RECIPES = 'receitas-nao-recebidas',
+  UNPAID_EXPENSES = 'despesas-nao-pagas',
+  RECIPES = 'receitas',
+  EXPENSES = 'despesas',
 }
 
 @Injectable()
@@ -108,7 +132,7 @@ export class ReleaseService {
     installment: number,
     timeCourse: string,
     usuarioAuth: IUserAuth,
-  ) {
+  ): Promise<Release | Release[]> {
     const release = new Release();
     release.description = createReleaseDto.description;
     release.value = createReleaseDto.value;
@@ -160,28 +184,8 @@ export class ReleaseService {
 
   async createSimpleRelease(release: Release) {
     const saveSimpleRelease = await this.releaseRepository.save(release);
-    const account = await this.accountRepository.findOne(release.accountId);
-    const category = await this.categoryRepository.findOne(release.categoryId);
-    return {
-      description: saveSimpleRelease.description,
-      value: saveSimpleRelease.value,
-      categoryId: saveSimpleRelease.categoryId,
-      accountId: saveSimpleRelease.accountId,
-      emission: saveSimpleRelease.emission,
-      dueDate: saveSimpleRelease.dueDate,
-      payDay: saveSimpleRelease.payDay,
-      type: saveSimpleRelease.type,
-      paidOut: saveSimpleRelease.paidOut,
-      orderedListing: saveSimpleRelease.orderedListing,
-      id: saveSimpleRelease.id,
 
-      account: {
-        name: account.name,
-      },
-      category: {
-        name: category.name,
-      },
-    };
+    return saveSimpleRelease;
   }
 
   async createInstallmentRelease(
@@ -235,8 +239,17 @@ export class ReleaseService {
     return releases;
   }
 
-  async listReleaseDetails(id: number, usuarioAuth: IUserAuth) {
+  async listReleaseDetails(
+    id: number,
+    usuarioAuth: IUserAuth,
+  ): Promise<IListReleaseDetailsResponse> {
     const releaseDetails = await this.releaseRepository.findOne(id);
+    if (!releaseDetails) {
+      throw new BadRequestException(
+        'Ops! verifique se esse lançamento realmente esta registrado na sua conta',
+      );
+    }
+
     const account = await this.accountRepository.findOne(
       releaseDetails.accountId,
     );
@@ -245,9 +258,9 @@ export class ReleaseService {
     );
     if (account.userId === usuarioAuth.userId) {
       return {
-        release: releaseDetails,
-        account: { name: account.name },
-        category: { name: category.name },
+        releaseDetails,
+        category,
+        account,
       };
     }
     throw new BadRequestException(
@@ -285,7 +298,6 @@ export class ReleaseService {
   ): Promise<SelectQueryBuilder<Release>> {
     const { account, category, date, filter, type, usuarioAuth, search } =
       params;
-
     const dateFilter = await this.dateFilter(date, filter);
 
     const releasesFilteredsToDate = this.releaseRepository
@@ -317,6 +329,7 @@ export class ReleaseService {
       category,
       account,
       search,
+      usuarioAuth,
     });
 
     return releasesFilteredsToDate;
@@ -395,32 +408,32 @@ export class ReleaseService {
     type: string,
   ) {
     switch (type) {
-      case typeReleasesToFilterEnum.allReleases:
+      case typeReleasesToFilterEnum.ALL_RELEASES:
         release.getMany();
         break;
-      case typeReleasesToFilterEnum.recipes:
+      case typeReleasesToFilterEnum.RECIPES:
         release.andWhere('type = :recipes', { recipes: 'receita' });
         break;
-      case typeReleasesToFilterEnum.payRecipes:
+      case typeReleasesToFilterEnum.PAY_RECIPES:
         release
           .andWhere('type = :recipes', { recipes: 'receita' })
           .andWhere('paid_out = :paidOut', { paidOut: true });
         break;
-      case typeReleasesToFilterEnum.unpaidRecipes:
+      case typeReleasesToFilterEnum.UNPAID_RECIPES:
         release
           .andWhere('type = :recipes', { recipes: 'receita' })
           .andWhere('paid_out = :paidOut', { paidOut: false });
 
         break;
-      case typeReleasesToFilterEnum.expenses:
+      case typeReleasesToFilterEnum.EXPENSES:
         release.andWhere('type = :expenses', { expenses: 'despesa' });
         break;
-      case typeReleasesToFilterEnum.payExpenses:
+      case typeReleasesToFilterEnum.PAY_EXPENSES:
         release
           .andWhere('type = :expenses', { expenses: 'despesa' })
           .andWhere('paid_out = :paidOut', { paidOut: true });
         break;
-      case typeReleasesToFilterEnum.unpaidExpenses:
+      case typeReleasesToFilterEnum.UNPAID_EXPENSES:
         release
           .andWhere('type = :expenses', { expenses: 'despesa' })
           .andWhere('paid_out = :paidOut', { paidOut: false });
@@ -467,18 +480,16 @@ export class ReleaseService {
 
   async filterReleaseByAccount(
     release: SelectQueryBuilder<Release>,
-    account: string,
+    account: number,
   ) {
-    const accountReplace = account.replace(
-      'todas as contas',
-      'todas-as-contas',
-    );
-    if (accountReplace === 'todas-as-contas') {
+    if (account == 0) {
       await release.getMany();
+    } else {
+      console.log('entrou no else');
+      await release
+        .andWhere('account.id  = :account', { account: account })
+        .getMany();
     }
-    await release
-      .andWhere('account.name ILIKE :account', { account: `%${account}%` })
-      .getMany();
   }
 
   async previsionSum(params: IPrevisionParams): Promise<IPrevisionResponse> {
@@ -557,29 +568,43 @@ export class ReleaseService {
     };
   }
 
-  async removeRelease(id: number, usuarioAuth: IUserAuth, amount: string) {
+  async removeRelease(
+    id: number,
+    usuarioAuth: IUserAuth,
+    amount: string,
+  ): Promise<IDeleteReleaseResponse> {
     const release = await this.releaseRepository.findOne(id);
+    if (!release) {
+      throw new BadRequestException('Ops... esse lançamento não existe');
+    }
+
     const account = await this.accountRepository.findOne(release.accountId);
+
     if (account.userId !== usuarioAuth.userId) {
       throw new BadRequestException(
-        'Verifique se esse lançamento realmente foi registrado',
+        'Verifique se esse lançamento realmente foi registrado na sua conta',
       );
-    } else if (release.installments === true) {
-      console.log('deletou o parcelado');
-
-      // await this.deleteInstallmentRelease(release, account);
-    } else if (release.fixed === true) {
-      console.log('deletou o fixo');
-
-      await this.deleteFixedRelease(release, account, amount);
+    } else if (release.batch) {
+      const deleteLoopingRelease = await this.deleteLoopingRelease(
+        release,
+        account,
+        amount,
+      );
+      return deleteLoopingRelease;
     } else {
-      console.log('deletou o simples');
-
-      await this.deleteSimpleRelease(release, account);
+      const deleteSimpleRelease = await this.deleteSimpleRelease(
+        release,
+        account,
+      );
+      return deleteSimpleRelease;
     }
   }
 
-  async deleteFixedRelease(release: Release, account: Account, amount: string) {
+  async deleteLoopingRelease(
+    release: Release,
+    account: Account,
+    amount: string,
+  ) {
     const fixedsReleases = this.releaseRepository
       .createQueryBuilder('releases')
       .where('releases.batch = :batch', { batch: release.batch });
@@ -588,21 +613,27 @@ export class ReleaseService {
       fixedsReleases.andWhere('releases.ordered_listing >= :orderedListing', {
         orderedListing: release.orderedListing,
       });
+    } else if (amount === amountEnum.JUST_THIS) {
+      fixedsReleases.andWhere('releases.ordered_listing = :orderedListing', {
+        orderedListing: release.orderedListing,
+      });
     }
 
     const getFixedsReleases = await fixedsReleases.getMany();
     const fixedsReleasesSum = await fixedsReleases
       .select('SUM(value)')
       .getRawOne();
+    const count = await fixedsReleases.getCount();
 
     if (release.paidOut) {
       account.openingBalance = account.openingBalance - fixedsReleasesSum.sum;
       await this.accountRepository.update(account.id, account);
       await this.releaseRepository.remove(getFixedsReleases);
+      return { key: release.batch, count };
     }
+    await this.releaseRepository.remove(getFixedsReleases);
+    return { key: release.batch, count };
   }
-
-  // async deleteInstallmentRelease(release: Release, account: Account) {}
 
   async deleteSimpleRelease(release: Release, account: Account) {
     if (release.paidOut) {
@@ -611,7 +642,10 @@ export class ReleaseService {
       await this.accountRepository.update(account.id, account);
 
       await this.releaseRepository.delete(release.id);
+      return { key: release.id };
     }
+    await this.releaseRepository.delete(release.id);
+    return { key: release.id };
   }
 
   async changeRelease(id: number, updateLançamentoDto: UpdateReleaseDto) {
@@ -623,16 +657,26 @@ export class ReleaseService {
 
     await this.releaseRepository.update(id, release);
     await this.releaseRepository.update(id, updateLançamentoDto);
+    return id;
   }
 
-  async changeType(id: number, updateTypeDto: UpdateTypeDto) {
+  async changeReleaseType(id: number, updateTypeDto: UpdateTypeDto) {
     const release = await this.releaseRepository.findOne(id);
+
+    if (!release) {
+      throw new BadRequestException(
+        'Ops! verifique se esse lançamento esta realmente registrado na sua conta.',
+      );
+    }
+
     const account = await this.accountRepository.findOne(release.accountId);
 
-    if (updateTypeDto.type === typeReleaseEnum.recipe) {
-      return await this.changeToRecipe(id, updateTypeDto, account, release);
+    if (updateTypeDto.type === typeEnum.RECIPE) {
+      await this.changeToRecipe(id, updateTypeDto, account, release);
+      return release.id;
     } else {
-      return await this.changeToExpense(id, updateTypeDto, account, release);
+      await this.changeToExpense(id, updateTypeDto, account, release);
+      return release.id;
     }
   }
 
@@ -644,18 +688,20 @@ export class ReleaseService {
     release: Release,
   ) {
     const value = Math.abs(release.value);
-
-    if (release.paidOut === true && release.type === 'despesa') {
+    if (release.paidOut === true && release.type === typeEnum.EXPENSE) {
       release.value = value;
       account.openingBalance = account.openingBalance + release.value * 2;
 
       await this.accountRepository.update(account.id, account);
-    } else if (release.paidOut === false && release.type === 'despesa') {
-      release.value = value;
 
-      await this.releaseRepository.update(id, release);
-      await this.releaseRepository.update(id, updateTypeDto);
+      return release;
     }
+
+    release.value = value;
+
+    await this.releaseRepository.update(id, release);
+    await this.releaseRepository.update(id, updateTypeDto);
+    return release;
   }
 
   //o valor do lançamento vem positivo
@@ -665,7 +711,7 @@ export class ReleaseService {
     account: Account,
     release: Release,
   ) {
-    const value = await this.convertValue(release.value);
+    const value = await this.forceNegativeValue(release.value);
 
     if (release.paidOut === true && release.type === 'receita') {
       release.value = value;
@@ -678,13 +724,9 @@ export class ReleaseService {
     return release;
   }
 
-  async convertValue(value: number) {
-    const convertValue = Math.sign(value);
-    if (convertValue === 1) {
-      return value * -1;
-    } else {
-      return value;
-    }
+  async forceNegativeValue(value: number) {
+    const convertValue = Math.abs(value) * -1;
+    return convertValue;
   }
 
   async changeReleaseValue(
@@ -696,7 +738,7 @@ export class ReleaseService {
       where: { id: release.accountId },
     });
     if (release.value != updateReleaseValueDto.value) {
-      if (release.type === typeReleaseEnum.recipe) {
+      if (release.type === typeEnum.RECIPE) {
         const changeRecipeValue = await this.changeRecipeValue(
           updateReleaseValueDto,
           id,
@@ -737,7 +779,7 @@ export class ReleaseService {
     account: Account,
     release: Release,
   ) {
-    const value = await this.convertValue(updateReleaseValueDto.value);
+    const value = await this.forceNegativeValue(updateReleaseValueDto.value);
     const openingBalance = account.openingBalance - release.value;
     account.openingBalance = openingBalance + value;
     await this.releaseRepository.update(id, updateReleaseValueDto);
@@ -751,13 +793,13 @@ export class ReleaseService {
       where: { id: release.accountId },
     });
 
-    if (release.type === typeReleaseEnum.recipe) {
+    if (release.type === typeEnum.RECIPE) {
       return await this.handlePostingRelease(
         account,
         release,
         updateLançamentoDto,
       );
-    } else if (release.type === typeReleaseEnum.expense) {
+    } else if (release.type === typeEnum.EXPENSE) {
       return await this.handlePostingRelease(
         account,
         release,
@@ -793,14 +835,20 @@ export class ReleaseService {
     await this.accountRepository.update(account.id, account);
     await this.releaseRepository.update(release.id, release);
     await this.releaseRepository.update(release.id, updateReleaseDto);
+    return release.id;
   }
 
-  async dateFilter(date: string, filter: string): Promise<IDateFilterResponse> {
-    if (filter === 'month') {
+  async dateFilter(
+    date: string,
+    filter: timeCourseFilterDto,
+  ): Promise<IDateFilterResponse> {
+    const { timeCourseFilter } = filter;
+
+    if (timeCourseFilter === timeCourseEnum.MONTH) {
       const initialDate = dayjs(date).startOf('month').format('YYYY-MM-DD');
       const finalDate = dayjs(date).endOf('month').format('YYYY-MM-DD');
       return { initialDate, finalDate };
-    } else if (filter === 'week') {
+    } else if (timeCourseFilter === timeCourseEnum.WEEK) {
       const initialDate = dayjs(date).format('YYYY-MM-DD');
       const finalDate = dayjs(date).add(7, 'day').format('YYYY-MM-DD');
       return { initialDate, finalDate };
@@ -822,9 +870,11 @@ export class ReleaseService {
     const account = await this.accountRepository.findOne(
       createReleaseDto.accountId,
     );
-    if (!release.description.length) release.description = 'outros';
-
-    if (release.paidOut) {
+    if (!account) {
+      throw new NotFoundException('ops! Conta não encontrada.');
+    } else if (!release.description.length) {
+      release.description = 'outros';
+    } else if (release.paidOut) {
       account.openingBalance = account.openingBalance + release.value;
 
       this.handleReleasePayDay(release, createReleaseDto);
@@ -841,11 +891,18 @@ export class ReleaseService {
   }
 
   async handleReleaseCategory(release: Release) {
-    const category = await this.categoryRepository.findOne({
-      name: releaseCategoryEnum.Outros,
+    const getCategoryByName = await this.categoryRepository.findOne({
+      name: releaseCategoryEnum.OTHERS,
     });
+    const getCategoryId = await this.categoryRepository.findOne(
+      release.categoryId,
+    );
 
-    if (!release.categoryId) release.categoryId = category.id;
+    if (!getCategoryId) {
+      throw new NotFoundException('ops! Categoria não encontrada');
+    }
+
+    if (!release.categoryId) release.categoryId = getCategoryByName.id;
 
     return release;
   }
@@ -853,15 +910,15 @@ export class ReleaseService {
   async handleReleaseAccount(release: Release, usuarioAuth: IUserAuth) {
     const account = await this.accountRepository.findOne(release.accountId);
     if (account.userId !== usuarioAuth.userId) {
-      throw new BadRequestException('Por favor, insira uma conta valida');
+      throw new NotFoundException('Ops! Conta não encontrada.');
     }
 
     return release;
   }
 
   async handleReleaseType(release: Release) {
-    if (release.type === typeReleaseEnum.expense) {
-      this.convertValue(release.value);
+    if (release.type === typeEnum.EXPENSE) {
+      this.forceNegativeValue(release.value);
     } else {
       Math.abs(release.value);
     }
@@ -948,6 +1005,7 @@ export class ReleaseService {
 
     return releasesArray;
   }
+
   async handleFixedRelease(
     release: Release,
     createReleaseDto: CreateReleaseDto,

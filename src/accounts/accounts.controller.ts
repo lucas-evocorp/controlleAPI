@@ -12,7 +12,7 @@ import { responseApiData } from 'src/core/messages/response-api-data-message';
 @ApiTags('accounts')
 @UseGuards(AuthGuard('jwt'))
 @ApiBearerAuth()
-@Controller('api/accounts')
+@Controller('accounts')
 export class AccountController {
   constructor(private readonly accountService: AccountService) {}
 

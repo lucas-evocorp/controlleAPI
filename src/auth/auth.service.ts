@@ -26,7 +26,7 @@ export class AuthService {
     const user = await this.usersService.fetchEmailByUser(loginDto.email);
 
     if (!user) {
-      throw new BadRequestException('Usuario não existe');
+      throw new BadRequestException('Email ou senha incorreta');
     }
     if ((await bcrypt.compare(loginDto.password, user.password)) === false) {
       throw new BadRequestException('Email ou senha incorreta');

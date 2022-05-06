@@ -39,9 +39,9 @@ export class AccountService {
     accounts.unshift({
       id: 0,
       name: 'todas as contas',
-      bankId: 1,
+      bankId: 0,
       openingBalance: 0,
-      userId: usuarioAuth.userId,
+      userId: 0,
     });
 
     return accounts;

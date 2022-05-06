@@ -1,4 +1,5 @@
 import { Account } from 'src/accounts/entities/account.entity';
+import { Feedback } from 'src/feedbacks/entities/feedbacks.entity';
 import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity({ name: 'users' })
@@ -20,4 +21,7 @@ export class User {
 
   @OneToMany(() => Account, (account) => account.user)
   account?: Account[];
+
+  @OneToMany(() => Feedback, (feedback) => feedback.user)
+  feedback: Feedback[];
 }

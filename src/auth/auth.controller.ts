@@ -9,7 +9,7 @@ import { LoginDto } from './dto/login.dto';
 // const { response } = responseApiData;
 
 @ApiTags('auth')
-@Controller('api/auth')
+@Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

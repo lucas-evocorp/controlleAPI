@@ -32,22 +32,11 @@ import { UpdateTypeDto } from './dto/update-release-type.dto ';
 import { SearchDto } from './dto/search.dto';
 import { CategoriesService } from './categories.service';
 import { IResponseApiData } from 'src/core/interfaces/response-api-data';
-import { response } from 'express';
 import { responseApiData } from 'src/core/messages/response-api-data-message';
-
-export enum BusinessTypesEnum {
-  MEI = 'MEI',
-  EI = 'EI',
-  ME = 'ME',
-  EPP = 'EPP',
-  EIRELI = 'EIRELI',
-  LTDA = 'LTDA',
-  UNIPESSOAL = 'UNIPESSOAL',
-  SA = 'SA',
-}
+import { timeCourseFilterDto } from './dto/time-course-filter.dto';
 
 @ApiTags('releases')
-@Controller('api/releases')
+@Controller('releases')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'))
 export class releaseController {
@@ -57,19 +46,29 @@ export class releaseController {
   ) {}
 
   @Get('details/:id')
-  async releaseDetails(
+  async getReleaseDetails(
     @Param('id') id: number,
     @UserAuth() usuarioAuth: IUserAuth,
   ) {
-    return await this.releaseService.listReleaseDetails(id, usuarioAuth);
+    const releaseDetails = await this.releaseService.listReleaseDetails(
+      id,
+      usuarioAuth,
+    );
+    return {
+      release: releaseDetails.releaseDetails,
+      category: { name: releaseDetails.category.name },
+      account: { name: releaseDetails.account.name },
+    };
   }
 
   @Get('late')
-  async delayedReleases(@UserAuth() usuarioAuth: IUserAuth) {
+  async delayedReleases(
+    @UserAuth() usuarioAuth: IUserAuth,
+  ): Promise<IResponseApiData> {
     const delayedReleases = await this.releaseService.delayedReleases(
       usuarioAuth,
     );
-    return { releases: delayedReleases };
+    return responseApiData(delayedReleases, 'lançamentos por pagar');
   }
 
   @ApiBearerAuth()
@@ -144,9 +143,9 @@ export class releaseController {
   @Get()
   async findAllReleases(
     @Query('type') type: string,
-    @Query('account') account: string,
+    @Query('account') account: number,
     @Query('category') category: string,
-    @Query('filter') filter: string,
+    @Query('filter') filter: timeCourseFilterDto,
     @Query('date') date: string,
     @Query('search') search: SearchDto,
     @UserAuth() usuarioAuth: IUserAuth,
@@ -182,8 +181,12 @@ export class releaseController {
   async updateRelease(
     @Param('id') id: number,
     @Body() updateReleaseDto: UpdateReleaseDto,
-  ) {
-    return await this.releaseService.changeRelease(id, updateReleaseDto);
+  ): Promise<IResponseApiData> {
+    const release = await this.releaseService.changeRelease(
+      id,
+      updateReleaseDto,
+    );
+    return { message: `Lançamento ${release}, alterado com sucesso!` };
   }
 
   @ApiBearerAuth()
@@ -193,8 +196,10 @@ export class releaseController {
   async payRelease(
     @Param('id') id: number,
     @Body() updateReleaseDto: payReleaseDto,
-  ) {
-    return await this.releaseService.payRelease(id, updateReleaseDto);
+  ): Promise<IResponseApiData> {
+    const release = await this.releaseService.payRelease(id, updateReleaseDto);
+
+    return { message: `Lançamento ${release} alterado com sucesso!` };
   }
 
   @ApiBearerAuth()
@@ -204,8 +209,9 @@ export class releaseController {
   async changeType(
     @Param('id') id: number,
     @Body() updateTypeDto: UpdateTypeDto,
-  ) {
-    return this.releaseService.changeType(id, updateTypeDto);
+  ): Promise<IResponseApiData> {
+    const release = this.releaseService.changeReleaseType(id, updateTypeDto);
+    return { message: `Lançamento ${release} alterado com sucesso!` };
   }
 
   @ApiBearerAuth()
@@ -217,14 +223,8 @@ export class releaseController {
     @Param('id') id: number,
     @Body() updateReleaseDto: UpdateReleaseValueDto,
   ): Promise<IResponseApiData> {
-    const changeReleaseValue = this.releaseService.changeReleaseValue(
-      id,
-      updateReleaseDto,
-    );
-    return responseApiData(
-      changeReleaseValue,
-      'Lançamento alterado com sucesso',
-    );
+    await this.releaseService.changeReleaseValue(id, updateReleaseDto);
+    return { message: 'valor do lançamento alterado com sucesso' };
   }
 
   @ApiQuery({ name: 'amount', required: false })
@@ -235,11 +235,15 @@ export class releaseController {
     id: number,
     @UserAuth() usuarioAuth: IUserAuth,
   ) {
-    const deleteRelease = this.releaseService.removeRelease(
+    const release = await this.releaseService.removeRelease(
       id,
       usuarioAuth,
       amount,
     );
-    return responseApiData(deleteRelease, 'Lançamento removido com sucesso');
+    if (!release.count) release.count = '';
+
+    return responseApiData(
+      `${release.count} lançamento(os) da chave ${release.key} removido(os) com sucesso!`.trim(),
+    );
   }
 }

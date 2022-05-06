@@ -5,6 +5,8 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AccountModule } from './accounts/accounts.module';
 import { releasesModule } from './releases/releases.module';
+import { FeedBackModule } from './feedbacks/feedbacks.module';
+import { MulterModule } from '@nestjs/platform-express';
 
 @Module({
   imports: [
@@ -24,8 +26,12 @@ import { releasesModule } from './releases/releases.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    MulterModule.register({
+      dest: './upload',
+    }),
     AccountModule,
     releasesModule,
+    FeedBackModule,
   ],
   controllers: [],
   providers: [],

@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsDate,
@@ -9,18 +10,15 @@ import {
   MaxLength,
 } from 'class-validator';
 import { IsNotBlank } from 'src/core/decorators/is-not-blank';
+import { typeEnum } from 'src/core/interfaces/type-enum';
 import { messagesValidation as Msgs } from 'src/core/messages/messages-validation-response';
 
-enum typeEnum {
-  receita = 'receita',
-  despesa = 'despesa',
-}
 export class CreateReleaseDto {
   @MaxLength(25, { message: Msgs.maxLength('descrição', 25) })
   @IsOptional()
   description?: string;
 
-  @IsNumber({}, { message: Msgs.isNumber('valor') })
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: Msgs.isNumber('valor') })
   value: number;
 
   @IsNumber()
@@ -33,14 +31,18 @@ export class CreateReleaseDto {
   @IsNotBlank({ message: Msgs.isNotBlank('dueDate') })
   dueDate: Date;
 
+  @Transform(({ value }) => new Date(value))
   @IsOptional()
   payDay?: Date;
 
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'o campo de contas, não pode estar vazio!' })
   accountId: number;
 
-  @IsBoolean()
-  paidOut: boolean;
+  @IsBoolean({
+    message: 'Algo deu errado, verifique os campos e tente novamente!',
+  })
+  @IsOptional()
+  paidOut?: boolean;
 
   @IsBoolean()
   fixed: boolean;
@@ -48,6 +50,9 @@ export class CreateReleaseDto {
   @IsBoolean()
   installments: boolean;
 
-  @IsEnum(typeEnum)
-  type: string;
+  @IsEnum(typeEnum, {
+    message:
+      'Algo deu errado!  por favor, verifique os campos e tente novamente!',
+  })
+  type: typeEnum;
 }

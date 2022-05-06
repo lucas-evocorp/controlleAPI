@@ -6,7 +6,7 @@ import { IUserAuth } from 'src/core/interfaces/user-auth.interface';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UsersService } from './users.service';
 
-@Controller('api/users')
+@Controller('users')
 @ApiTags('users')
 @ApiBearerAuth()
 export class UsersController {
