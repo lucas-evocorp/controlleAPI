@@ -1,3 +1,5 @@
+import * as dotenv from 'dotenv';
+dotenv.config();
 export const jwtConstants = {
-  secret: 'CH$VESECR#T',
+  secret: process.env.SECRET,
 };

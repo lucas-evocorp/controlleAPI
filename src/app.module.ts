@@ -7,15 +7,20 @@ import { AccountModule } from './accounts/accounts.module';
 import { releasesModule } from './releases/releases.module';
 import { FeedBackModule } from './feedbacks/feedbacks.module';
 import { MulterModule } from '@nestjs/platform-express';
-
+import * as dotenv from 'dotenv';
+dotenv.config();
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.PG_HOST,
       port: parseInt(process.env.PG_PORT),
-      username: 'postgres',
-      password: 'postgres',
+      username: process.env.PG_USERNAME,
+      password: process.env.PG_PASSWORD,
       database: process.env.PG_DATABASE,
       entities: ['dist/**/*.entity{.ts,.js}'],
       synchronize: true,
@@ -23,9 +28,6 @@ import { MulterModule } from '@nestjs/platform-express';
     }),
     AuthModule,
     UsersModule,
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
     MulterModule.register({
       dest: './upload',
     }),
